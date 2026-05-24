@@ -76,7 +76,7 @@ input[type=range]{ width:100%; accent-color:#00e5ff; }
 <body>
 
 <div id="topbar">
-  <h1>⚡ FLIPPER <span style="font-size:.55rem;color:#555;letter-spacing:1px">v68</span></h1>
+  <h1>⚡ FLIPPER <span style="font-size:.55rem;color:#555;letter-spacing:1px">v69</span></h1>
   <div id="bdots"></div>
   <div id="score-display">0</div>
 </div>
@@ -647,10 +647,14 @@ const HANDLE_R = 22; // tap radius in px
 let alignDrag = null; // { idx, ox, oy }
 
 function cornersToCalibPts() {
-  // alignCorners are fractions of calibCv (which letterboxes the video)
-  // calibPts must be in proc-canvas-norm (0-1, stretched, no letterbox)
-  // Since calibCv shows video letterboxed, we remap to remove that letterbox
-  const cw = calibCv.width || 1, ch = calibCv.height || 1;
+  const cw = calibCv.width, ch = calibCv.height;
+  // If calibCv not yet sized (auto-start), alignCorners are already in
+  // proc-canvas-norm (0-1) — use directly
+  if (!cw || !ch) {
+    calibPts = alignCorners.map(c => ({ x: c.x, y: c.y }));
+    return;
+  }
+  // calibCv letterboxes the video — remap to proc-canvas-norm (no letterbox)
   const rawW = video.videoWidth||VW, rawH = video.videoHeight||VH;
   const dispW=(camRotation===90||camRotation===270)?rawH:rawW;
   const dispH=(camRotation===90||camRotation===270)?rawW:rawH;
@@ -658,7 +662,6 @@ function cornersToCalibPts() {
   let vx,vy,vw,vh;
   if(vAR>cAR){vw=cw;vh=cw/vAR;vx=0;vy=(ch-vh)/2;}
   else{vh=ch;vw=ch*vAR;vy=0;vx=(cw-vw)/2;}
-  // Remap: calibCv pixel → position within video → proc-norm (0-1)
   calibPts = alignCorners.map(c=>({
     x: Math.max(0,Math.min(1,(c.x*cw-vx)/vw)),
     y: Math.max(0,Math.min(1,(c.y*ch-vy)/vh)),
