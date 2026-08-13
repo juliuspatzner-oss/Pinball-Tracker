@@ -107,7 +107,7 @@ input[type=range]{ width:100%; accent-color:#00e5ff; }
 <body>
 
 <div id="topbar">
-  <h1>⚡ FLIPPER <span style="font-size:.55rem;color:#555;letter-spacing:1px">v137</span></h1>
+  <h1>⚡ FLIPPER <span style="font-size:.55rem;color:#555;letter-spacing:1px">v138</span></h1>
   <div id="bdots"></div>
   <div id="score-display">0</div>
 </div>
@@ -224,10 +224,12 @@ input[type=range]{ width:100%; accent-color:#00e5ff; }
         <input class="czinput" id="cz-pts" type="number" min="0" max="99999" value="5000">
       </div>
     </div>
-    <div class="cz2col">
-      <div class="czfield" style="flex:0 0 auto">
-        <label class="czlabel">Farbe</label>
-        <input class="czinput" id="cz-color" type="color" value="#ff6600" style="height:34px;padding:2px 4px;cursor:pointer;width:60px">
+    <div class="czfield">
+      <label class="czlabel">Farbe</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div id="cz-color-swatch" style="width:32px;height:32px;border-radius:50%;border:2px solid #333;cursor:pointer;background:#ff6600;flex-shrink:0" onclick="openColorWheel('cz-color-swatch','cz-color-val')"></div>
+        <span id="cz-color-label" style="font-size:.55rem;color:#aaa">#ff6600</span>
+        <input type="hidden" id="cz-color-val" value="#ff6600">
       </div>
     </div>
     <div style="color:#444;font-size:.5rem;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid #1e1e1e;padding-bottom:3px">Temporärer Multiplikator</div>
@@ -275,6 +277,20 @@ input[type=range]{ width:100%; accent-color:#00e5ff; }
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-grey" id="btn-cz-cancel" style="flex:1">Abbrechen</button>
       <button class="btn btn-green" id="btn-cz-save" style="flex:2">✓ Erstellen &amp; Zone zeichnen</button>
+    </div>
+  </div>
+
+  <!-- COLOR WHEEL MODAL -->
+  <div class="modal" id="colorwheel-modal" style="display:none;padding:16px;gap:12px;max-width:320px;margin:auto;align-items:center">
+    <h2 style="font-size:.8rem;width:100%">🎨 Farbe wählen</h2>
+    <canvas id="colorwheel-canvas" width="260" height="260" style="border-radius:50%;cursor:crosshair;touch-action:none"></canvas>
+    <div style="display:flex;align-items:center;gap:10px;width:100%">
+      <div id="colorwheel-preview" style="width:40px;height:40px;border-radius:50%;border:2px solid #333;flex-shrink:0"></div>
+      <span id="colorwheel-hex" style="font-family:monospace;color:#aaa;font-size:.7rem;flex:1">#ff6600</span>
+    </div>
+    <div style="display:flex;gap:8px;width:100%">
+      <button class="btn btn-grey" id="btn-colorwheel-cancel" style="flex:1">Abbrechen</button>
+      <button class="btn btn-green" id="btn-colorwheel-ok" style="flex:2">✓ Übernehmen</button>
     </div>
   </div>
 
@@ -2191,6 +2207,109 @@ function predecodeAllSfx() {
 // ═══════════════════════════════════════════════════
 // SOUND MUTE SYSTEM
 // ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
+// COLOR WHEEL PICKER
+// ═══════════════════════════════════════════════════
+let _cwSwatchEl = null;
+let _cwValEl    = null;
+let _cwPickedColor = '#ff6600';
+
+function drawColorWheel() {
+  const canvas = document.getElementById('colorwheel-canvas');
+  const ctx = canvas.getContext('2d');
+  const cx = canvas.width / 2, cy = canvas.height / 2, r = cx - 2;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Draw hue ring with lightness gradient from center
+  for (let angle = 0; angle < 360; angle++) {
+    const startAngle = (angle - 1) * Math.PI / 180;
+    const endAngle   = (angle + 1) * Math.PI / 180;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0,   'white');
+    grad.addColorStop(0.5, `hsl(${angle},100%,50%)`);
+    grad.addColorStop(1,   `hsl(${angle},100%,20%)`);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, startAngle, endAngle);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+}
+
+function colorFromWheelPos(canvas, x, y) {
+  const cx = canvas.width / 2, cy = canvas.height / 2, r = cx - 2;
+  const dx = x - cx, dy = y - cy;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist > r) return null;
+  const angle = ((Math.atan2(dy, dx) * 180 / Math.PI) + 360) % 360;
+  const sat   = Math.min(dist / r, 1);
+  // Map sat 0..1 → lightness 100%..50%..20%, saturation 0%..100%
+  const l = dist < r * 0.5
+    ? 100 - (dist / (r * 0.5)) * 50        // center→mid: white→pure
+    : 50  - ((dist - r*0.5) / (r*0.5)) * 30; // mid→edge: pure→dark
+  const s = sat < 0.5 ? sat * 2 * 100 : 100;
+  return hslToHex(angle, s, l);
+}
+
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const k = (n + h / 30) % 12;
+    return Math.round((l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))) * 255);
+  };
+  return '#' + [f(0),f(8),f(4)].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+function openColorWheel(swatchId, valId) {
+  _cwSwatchEl = document.getElementById(swatchId);
+  _cwValEl    = document.getElementById(valId);
+  _cwPickedColor = _cwValEl.value || '#ff6600';
+  document.getElementById('colorwheel-preview').style.background = _cwPickedColor;
+  document.getElementById('colorwheel-hex').textContent = _cwPickedColor;
+  drawColorWheel();
+  document.getElementById('colorwheel-modal').style.display = 'flex';
+}
+
+function cwHandlePos(e) {
+  const canvas = document.getElementById('colorwheel-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const touch = e.touches ? e.touches[0] : e;
+  const x = (touch.clientX - rect.left) * scaleX;
+  const y = (touch.clientY - rect.top)  * scaleY;
+  const col = colorFromWheelPos(canvas, x, y);
+  if (col) {
+    _cwPickedColor = col;
+    document.getElementById('colorwheel-preview').style.background = col;
+    document.getElementById('colorwheel-hex').textContent = col;
+  }
+}
+
+const cwCanvas = document.getElementById('colorwheel-canvas');
+cwCanvas.addEventListener('click',     cwHandlePos);
+cwCanvas.addEventListener('touchstart', e => { e.preventDefault(); cwHandlePos(e); }, {passive:false});
+cwCanvas.addEventListener('touchmove',  e => { e.preventDefault(); cwHandlePos(e); }, {passive:false});
+cwCanvas.addEventListener('mousemove',  e => { if (e.buttons) cwHandlePos(e); });
+
+document.getElementById('btn-colorwheel-cancel').addEventListener('click', () => {
+  document.getElementById('colorwheel-modal').style.display = 'none';
+});
+document.getElementById('btn-colorwheel-ok').addEventListener('click', () => {
+  if (_cwSwatchEl) { _cwSwatchEl.style.background = _cwPickedColor; }
+  if (_cwValEl)    { _cwValEl.value = _cwPickedColor; }
+  const label = _cwSwatchEl && _cwSwatchEl.nextElementSibling;
+  if (label && label.tagName === 'SPAN') label.textContent = _cwPickedColor;
+  // Also update the label span next to swatch
+  const parent = _cwSwatchEl ? _cwSwatchEl.parentElement : null;
+  if (parent) {
+    const span = parent.querySelector('span');
+    if (span) span.textContent = _cwPickedColor;
+  }
+  document.getElementById('colorwheel-modal').style.display = 'none';
+});
+
 const SOUND_GROUPS = [
   { id:'theme',    label:'🎵 Theme-Musik',  color:'#00ff88', keys:['theme'] },
   { id:'ramp',     label:'🟢 Rampen',       color:'#00ff88', keys:['ramp1','ramp2','ramp3'] },
@@ -2837,7 +2956,9 @@ function ensurePathZoneDefs(cz) {
   if (!cz.path || !cz.path.enabled) return;
   for (const node of cz.path.nodes) {
     if (!ZONE_DEFS.find(d => d.key === node.key)) {
-      ZONE_DEFS.push({ key: node.key, label: node.label, color: pathNodeColor(node.type), custom: true, pathNode: true });
+      // All path nodes get the same color as the parent zone, with slight opacity variant per type
+      const col = cz.color || '#ff6600';
+      ZONE_DEFS.push({ key: node.key, label: node.label, color: col, custom: true, pathNode: true });
     }
   }
 }
@@ -2988,7 +3109,7 @@ document.getElementById('btn-path-save').addEventListener('click', () => {
   cz.path = { enabled, timeLimitSec, branch, nodes: _pathNodes.map(n => ({ ...n })) };
 
   if (enabled) {
-    ensurePathZoneDefs(cz);
+    ensurePathZoneDefs(cz); // uses cz.color automatically
     // Open zone editor and queue path nodes to draw
     document.getElementById('path-modal').style.display = 'none';
     buildZoneButtons();
@@ -3876,7 +3997,7 @@ document.getElementById('btn-cz-save').addEventListener('click', () => {
   if (!name) { alert('Bitte einen Namen eingeben!'); return; }
   const pts      = parseInt(document.getElementById('cz-pts').value)       || 5000;
   const ptsEntry = parseInt(document.getElementById('cz-pts-entry').value) || 500;
-  const color = document.getElementById('cz-color').value           || '#ff6600';
+  const color = document.getElementById('cz-color-val').value      || '#ff6600';
   const tHits = parseInt(document.getElementById('cz-thits').value) || 0;
   const tSec  = parseInt(document.getElementById('cz-tsec').value)  || 30;
   const tMult = parseInt(document.getElementById('cz-tmult').value) || 3;
